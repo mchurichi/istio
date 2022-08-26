@@ -25,162 +25,6 @@ spec:
   volumeLifecycleModes:
     - Ephemeral
 ---
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  annotations:
-    controller-gen.kubebuilder.io/version: v0.2.4
-  name: spiffeids.spiffeid.spiffe.io
-spec:
-  group: spiffeid.spiffe.io
-  names:
-    kind: SpiffeID
-    listKind: SpiffeIDList
-    plural: spiffeids
-    singular: spiffeid
-  scope: Namespaced
-  versions:
-  - name: v1beta1
-    served: true
-    storage: true
-    subresources:
-      status: {}
-    schema:
-      openAPIV3Schema:
-        description: SpiffeID is the Schema for the spiffeid API
-        properties:
-          apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation
-              of an object. Servers should convert recognized schemas to the latest
-              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
-            type: string
-          kind:
-            description: 'Kind is a string value representing the REST resource this
-              object represents. Servers may infer this from the endpoint the client
-              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
-            type: string
-          metadata:
-            type: object
-          spec:
-            description: SpiffeIDSpec defines the desired state of SpiffeID
-            properties:
-              dnsNames:
-                items:
-                  type: string
-                type: array
-              federatesWith:
-                items:
-                  type: string
-                type: array
-              parentId:
-                type: string
-              downstream:
-                type: boolean
-              selector:
-                properties:
-                  arbitrary:
-                    description: Arbitrary selectors
-                    items:
-                      type: string
-                    type: array
-                  containerImage:
-                    description: Container image to match for this spiffe ID
-                    type: string
-                  containerName:
-                    description: Container name to match for this spiffe ID
-                    type: string
-                  namespace:
-                    description: Namespace to match for this spiffe ID
-                    type: string
-                  nodeName:
-                    description: Node name to match for this spiffe ID
-                    type: string
-                  podLabel:
-                    additionalProperties:
-                      type: string
-                    description: Pod label name/value to match for this spiffe ID
-                    type: object
-                  podName:
-                    description: Pod name to match for this spiffe ID
-                    type: string
-                  podUid:
-                    description: Pod UID to match for this spiffe ID
-                    type: string
-                  serviceAccount:
-                    description: ServiceAccount to match for this spiffe ID
-                    type: string
-                  cluster:
-                    description: The k8s_psat cluster name
-                    type: string
-                  agent_node_uid:
-                    description: UID of the node
-                    type: string
-                type: object
-              spiffeId:
-                type: string
-            required:
-            - parentId
-            - selector
-            - spiffeId
-            type: object
-          status:
-            description: SpiffeIDStatus defines the observed state of SpiffeID
-            properties:
-              entryId:
-                description: 'INSERT ADDITIONAL STATUS FIELD - define observed state
-                  of cluster Important: Run "make" to regenerate code after modifying
-                  this file'
-                type: string
-            type: object
-        type: object
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: k8s-workload-registrar-role-binding
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: k8s-workload-registrar-role
-subjects:
-- kind: ServiceAccount
-  name: spire-server
-  namespace: spire
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: k8s-workload-registrar-role
-rules:
-- apiGroups: ["authentication.k8s.io"]
-  resources: ["tokenreviews"]
-  verbs: ["get", "create"]
-- apiGroups: [""]
-  resources: ["endpoints", "nodes", "pods"]
-  verbs: ["get", "list", "watch"]
-- apiGroups: ["spiffeid.spiffe.io"]
-  resources: ["spiffeids"]
-  verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
-- apiGroups: ["spiffeid.spiffe.io"]
-  resources: ["spiffeids/status"]
-  verbs: ["get", "patch", "update"]
-- apiGroups: ["admissionregistration.k8s.io"]
-  resources: ["validatingwebhookconfigurations"]
-  verbs: ["get", "list", "update", "watch"]
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: k8s-workload-registrar
-  namespace: spire
-data:
-  k8s-workload-registrar.conf: |
-    trust_domain = "example.org"
-    server_socket_path = "/run/spire/sockets/server.sock"
-    cluster = "demo-cluster"
-    mode = "crd"
-    metrics_bind_addr = "0"
----
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -336,29 +180,27 @@ spec:
             - name: spire-registration-socket
               mountPath: /run/spire/sockets
               readOnly: false
-        - name: k8s-workload-registrar
-          image: gcr.io/spiffe-io/k8s-workload-registrar:1.2.0
-          args:
-            - -config
-            - /run/spire/config/k8s-workload-registrar.conf
+        - name: spire-controller-manager
+          image: ghcr.io/spiffe/spire-controller-manager:0.2.1
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 9443
-              name: webhook
-              protocol: TCP
+          args:
+            - "--config=spire-controller-manager-config.yaml"
           volumeMounts:
-            - mountPath: /run/spire/config
-              name: k8s-workload-registrar-config
-              readOnly: true
             - name: spire-registration-socket
-              mountPath: /run/spire/sockets
+              mountPath: /spire-server
               readOnly: true
+            - name: spire-controller-manager-config
+              mountPath: /spire-controller-manager-config.yaml
+              subPath: spire-controller-manager-config.yaml
       volumes:
         - name: spire-config
           configMap:
             name: spire-server
-        - name: k8s-workload-registrar-config
+        - name: spire-controller-manager-config
           configMap:
-            name: k8s-workload-registrar
+            name: spire-controller-manager-config
         - name: spire-registration-socket
           hostPath:
             path: /run/spire/server-sockets
@@ -603,3 +445,108 @@ spec:
           hostPath:
             path: /var/lib/kubelet/plugins_registry
             type: Directory
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: spire-controller-manager-webhook
+webhooks:
+  - admissionReviewVersions: ["v1"]
+    clientConfig:
+      service:
+        name: spire-controller-manager-webhook-service
+        namespace: spire
+        path: /validate-spire-spiffe-io-v1alpha1-clusterfederatedtrustdomain
+    failurePolicy: Fail
+    name: vclusterfederatedtrustdomain.kb.io
+    rules:
+      - apiGroups: ["spire.spiffe.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["clusterfederatedtrustdomains"]
+    sideEffects: None
+  - admissionReviewVersions: ["v1"]
+    clientConfig:
+      service:
+        name: spire-controller-manager-webhook-service
+        namespace: spire
+        path: /validate-spire-spiffe-io-v1alpha1-clusterspiffeid
+    failurePolicy: Fail
+    name: vclusterspiffeid.kb.io
+    rules:
+      - apiGroups: ["spire.spiffe.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["clusterspiffeids"]
+    sideEffects: None
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["validatingwebhookconfigurations"]
+    verbs: ["get", "list", "patch", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["spire.spiffe.io"]
+    resources: ["clusterfederatedtrustdomains"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["spire.spiffe.io"]
+    resources: ["clusterfederatedtrustdomains/finalizers"]
+    verbs: ["update"]
+  - apiGroups: ["spire.spiffe.io"]
+    resources: ["clusterfederatedtrustdomains/status"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: ["spire.spiffe.io"]
+    resources: ["clusterspiffeids"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["spire.spiffe.io"]
+    resources: ["clusterspiffeids/finalizers"]
+    verbs: ["update"]
+  - apiGroups: ["spire.spiffe.io"]
+    resources: ["clusterspiffeids/status"]
+    verbs: ["get", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: manager-role
+subjects:
+- kind: ServiceAccount
+  name: spire-server
+  namespace: spire
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spire-controller-manager-config
+  namespace: spire
+data:
+  spire-controller-manager-config.yaml: |
+    apiVersion: spire.spiffe.io/v1alpha1
+    kind: ControllerManagerConfig
+    metadata:
+      name: spire-controller-manager-config
+    metrics:
+      bindAddress: 127.0.0.1:8082
+    healthProbe:
+      bindAddress: 127.0.0.1:8083
+    clusterName: demo-cluster
+    trustDomain: example.org
+    spireServerSocketPath: /spire-server/server.sock
+    leaderElection:
+      leaderElect: false
+    ignoreNamespaces: ["kube-system", "kube-public", "local-path-storage", "spire"]
