@@ -550,3 +550,29 @@ data:
     leaderElection:
       leaderElect: false
     ignoreNamespaces: ["kube-system", "kube-public", "local-path-storage", "spire"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spire-controller-manager-webhook-service
+  namespace: spire
+spec:
+  ports:
+    - port: 443
+      protocol: TCP
+      targetPort: 9443
+  selector:
+    app: spire-server
+---
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: cluster-spiffe-ids
+spec:
+  dnsNameTemplates:
+  - '{{ .PodMeta.Name }}'
+  - '{{ .PodMeta.Labels.app }}.{{ .PodMeta.Namespace }}.svc'
+  spiffeIDTemplate: spiffe://example.org/ns/{{ .PodMeta.Namespace }}/sa/{{ .PodSpec.ServiceAccountName }}
+  workloadSelectorTemplates:
+  - k8s:ns:{{ .PodMeta.Namespace }}
+  - k8s:sa:{{ .PodSpec.ServiceAccountName }}
